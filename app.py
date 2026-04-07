@@ -1,246 +1,308 @@
-from flask import Flask, render_template, request, jsonify, session
-from flask_cors import CORS
-from FraudCat import FraudCatSession
-import threading
-import time
-import uuid
-import logging
-from typing import Dict, Any
-import json
+from flask import Flask, render_template_string, request, jsonify, Response
+import requests
 
 app = Flask(__name__)
-app.secret_key = 'your-secret-key-change-this-in-production'
-CORS(app)
 
-# Store active listeners and results
-active_listeners: Dict[str, Dict] = {}
-listener_results: Dict[str, Any] = {}
-listener_status: Dict[str, str] = {}
+# If you want to force API requests through the server instead of directly from the browser,
+# set USE_PROXY = True. Be aware this will require CORS handling and user's cookies won't
+# automatically be forwarded (unless you implement cookie forwarding/auth). By default we let
+# the browser call fraud.cat directly.
+USE_PROXY = False
+FRAUD_BASE = "https://fraud.cat"
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+# The HTML template: includes CSS (from styles.css you provided) and JS (adapted from popup.js)
+HTML_TEMPLATE = """
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>FraudCat Codes</title>
+  <style>
+    body {
+      font-family: Arial;
+      width: 300px;
+      padding: 10px;
+      background: #111;
+      color: white;
+    }
 
-class EmailListenerThread(threading.Thread):
-    def __init__(self, session_id: str, username: str, password: str, 
-                 email_username: str = None, max_iterations: int = 15):
-        super().__init__()
-        self.session_id = session_id
-        self.username = username
-        self.password = password
-        self.email_username = email_username
-        self.max_iterations = max_iterations
-        self.is_running = True
-        
-    def run(self):
-        try:
-            listener_status[self.session_id] = "initializing"
-            
-            # Create FraudCat session
-            fraud_session = FraudCatSession(self.username, self.password)
-            
-            if not fraud_session.is_logged_in:
-                listener_status[self.session_id] = "error"
-                listener_results[self.session_id] = {
-                    "error": "Login failed. Check your credentials."
-                }
-                return
-            
-            listener_status[self.session_id] = "getting_domains"
-            
-            # Check if domains are available
-            if not fraud_session.available_domains:
-                listener_status[self.session_id] = "error"
-                listener_results[self.session_id] = {
-                    "error": "No available domains found. Your account might not have access."
-                }
-                return
-            
-            listener_status[self.session_id] = "creating_email"
-            
-            # Create and listen for emails
-            if self.email_username:
-                # Use specific username
-                to_domain = fraud_session.get_random_domain()
-                if to_domain:
-                    listener_status[self.session_id] = "listening"
-                    email_address = f"{self.email_username}@{to_domain}"
-                    
-                    try:
-                        message = fraud_session.create_and_listen(
-                            self.email_username, to_domain, 
-                            fetch_full_body=True, 
-                            max_iterations=self.max_iterations
-                        )
-                        listener_results[self.session_id] = {
-                            "email": email_address,
-                            "message": message,
-                            "status": "success"
-                        }
-                        listener_status[self.session_id] = "completed"
-                    except TimeoutError:
-                        listener_results[self.session_id] = {
-                            "email": email_address,
-                            "error": f"No email received within {self.max_iterations * 20} seconds",
-                            "status": "timeout"
-                        }
-                        listener_status[self.session_id] = "timeout"
-                else:
-                    listener_results[self.session_id] = {
-                        "error": "Failed to get random domain"
-                    }
-                    listener_status[self.session_id] = "error"
-            else:
-                # Use random username
-                try:
-                    email_address, message = fraud_session.create_and_listen_random(
-                        fraud_session.generate_random_user(),
-                        fetch_full_body=True,
-                        max_iterations=self.max_iterations
-                    )
-                    listener_results[self.session_id] = {
-                        "email": email_address,
-                        "message": message,
-                        "status": "success"
-                    }
-                    listener_status[self.session_id] = "completed"
-                except TimeoutError:
-                    listener_results[self.session_id] = {
-                        "error": f"No email received within {self.max_iterations * 20} seconds",
-                        "status": "timeout"
-                    }
-                    listener_status[self.session_id] = "timeout"
-            
-            fraud_session.logout()
-            
-        except Exception as e:
-            logger.error(f"Listener thread error: {e}")
-            listener_status[self.session_id] = "error"
-            listener_results[self.session_id] = {
-                "error": str(e)
-            }
+    input {
+      width: 100%;
+      margin-bottom: 8px;
+      padding: 8px;
+    }
 
-@app.route('/')
+    button {
+      width: 100%;
+      padding: 10px;
+      background: #00c853;
+      border: none;
+      color: white;
+      cursor: pointer;
+    }
+
+    #output {
+      margin-top: 10px;
+      max-height: 300px;
+      overflow-y: auto;
+    }
+
+    hr {
+      border: none;
+      border-top: 1px solid #222;
+      margin: 8px 0;
+    }
+  </style>
+</head>
+<body>
+  <h3>FraudCat Codes</h3>
+  <input id="email" placeholder="example@fraud.cat" />
+  <button id="start">Get Codes</button>
+  <div id="output"></div>
+
+  <script>
+  (function() {
+    const BASE = "{{ base_url }}";
+    const USE_PROXY = {{ use_proxy|lower }};
+    const output = document.getElementById("output");
+
+    // store seen identifiers so we only append new codes
+    const seenMessages = new Set(); // stores uid or generated id for messages
+    const seenCodesPerMessage = new Map(); // messageId -> Set of codes already shown
+
+    function extractCodes(text) {
+      return text.match(/\\b\\d{4,8}\\b/g) || [];
+    }
+
+    function parseEmail(email) {
+      const parts = email.split("@");
+      return { address: parts[0], domain: parts[1] };
+    }
+
+    async function fetchViaProxy(path, body) {
+      // Proxy endpoint on this server: /proxy which will forward to FRAUD_BASE.
+      // Only used if USE_PROXY is true (see server config).
+      try {
+        const res = await fetch('/proxy', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json;charset=UTF-8' },
+          body: JSON.stringify({ path, body })
+        });
+        if (!res.ok) throw new Error('Proxy error: ' + res.status);
+        return await res.json();
+      } catch (e) {
+        console.error('Proxy fetch error', e);
+        throw e;
+      }
+    }
+
+    async function getInbox(toAddress, toDomain) {
+      const path = "/api/services/app/mail/GetInbox";
+      const payload = { toAddress, toDomain };
+
+      if (USE_PROXY) {
+        const res = await fetchViaProxy(path, payload);
+        return res.result?.emails || [];
+      }
+
+      const res = await fetch(BASE + path, {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          "content-type": "application/json;charset=UTF-8"
+        },
+        body: JSON.stringify(payload)
+      });
+
+      const data = await res.json();
+      return data.result?.emails || [];
+    }
+
+    async function getEmail(uid) {
+      const path = "/api/services/app/mail/GetLetterById";
+      const payload = { uid };
+
+      if (USE_PROXY) {
+        const res = await fetchViaProxy(path, payload);
+        return res.result || null;
+      }
+
+      const res = await fetch(BASE + path, {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          "content-type": "application/json;charset=UTF-8"
+        },
+        body: JSON.stringify(payload)
+      });
+
+      const data = await res.json();
+      return data.result || null;
+    }
+
+    // generate an id for messages that don't have a uid to help dedupe
+    function generateIdForMessage(msg) {
+      if (msg.uid) return String(msg.uid);
+      // fallback: use subject + a short snippet of body/content
+      const snippet = (msg.body || msg.content || msg.htmlBody || msg.textBody || "").slice(0, 120);
+      return `no-uid:${(msg.subject || "no-subject")}|${snippet}`;
+    }
+
+    function appendNewCodesToOutput(messageId, subject, newCodes) {
+      if (!newCodes || newCodes.length === 0) return;
+      const container = document.createElement("div");
+      const subj = document.createElement("b");
+      subj.textContent = subject || "No subject";
+      const codesText = document.createElement("div");
+      codesText.textContent = `Codes: ${newCodes.join(", ")}`;
+      const hr = document.createElement("hr");
+
+      container.appendChild(subj);
+      container.appendChild(document.createElement("br"));
+      container.appendChild(codesText);
+      container.appendChild(hr);
+
+      output.appendChild(container);
+      // scroll to bottom so new codes are visible
+      output.scrollTop = output.scrollHeight;
+    }
+
+    async function processMessage(msg) {
+      const messageId = generateIdForMessage(msg);
+
+      // fetch full email if needed
+      let full = msg;
+      if (msg.uid) {
+        try {
+          full = await getEmail(msg.uid) || msg;
+        } catch (e) {
+          // on error, keep using provided msg
+          full = msg;
+        }
+      }
+
+      const body =
+        full.body ||
+        full.content ||
+        full.htmlBody ||
+        full.textBody ||
+        "";
+
+      const codes = extractCodes(body);
+
+      if (!codes.length) {
+        // mark message as seen so we don't refetch forever (optional)
+        if (!seenMessages.has(messageId)) {
+          seenMessages.add(messageId);
+          seenCodesPerMessage.set(messageId, new Set());
+        }
+        return;
+      }
+
+      // get set of previously seen codes for this message
+      const seenSet = seenCodesPerMessage.get(messageId) || new Set();
+      const newlyFound = [];
+
+      for (const c of codes) {
+        if (!seenSet.has(c)) {
+          newlyFound.push(c);
+          seenSet.add(c);
+        }
+      }
+
+      // store updated seen codes and mark message seen
+      seenCodesPerMessage.set(messageId, seenSet);
+      seenMessages.add(messageId);
+
+      if (newlyFound.length) {
+        appendNewCodesToOutput(messageId, msg.subject || "No subject", newlyFound);
+      }
+    }
+
+    async function fetchNewCodes(email) {
+      const { address, domain } = parseEmail(email);
+      const inbox = await getInbox(address, domain);
+
+      // process each message but do not clear output
+      for (let msg of inbox) {
+        const messageId = generateIdForMessage(msg);
+
+        if (seenMessages.has(messageId) && !msg.uid) {
+          // already processed and cannot fetch more detail -> skip
+          continue;
+        }
+
+        try {
+          await processMessage(msg);
+        } catch (e) {
+          console.error("Error processing message", e);
+        }
+      }
+    }
+
+    let pollingHandle = null;
+
+    document.getElementById("start").onclick = async () => {
+      const email = document.getElementById("email").value.trim();
+      if (!email) return;
+
+      // clear any previous error text but DO NOT clear output
+      output.innerHTML = output.innerHTML || "";
+
+      try {
+        await fetchNewCodes(email);
+      } catch (e) {
+        output.innerHTML = "Error: Make sure you're logged into FraudCat or enable server proxy.";
+      }
+
+      // clear existing interval if any and set new 10s interval
+      if (pollingHandle) clearInterval(pollingHandle);
+      pollingHandle = setInterval(() => {
+        const emailNow = document.getElementById("email").value.trim();
+        if (emailNow) fetchNewCodes(emailNow);
+      }, 10000); // 10 seconds
+    };
+  })();
+  </script>
+</body>
+</html>
+"""
+
+@app.route("/")
 def index():
-    """Serve the main page"""
-    return render_template('index.html')
+    # serve page, pass base url and flag to toggle proxy usage in client-side JS
+    return render_template_string(HTML_TEMPLATE, base_url=FRAUD_BASE, use_proxy=USE_PROXY)
 
-@app.route('/api/start_listener', methods=['POST'])
-def start_listener():
-    """Start a new email listener"""
-    data = request.json
-    
-    username = data.get('username')
-    password = data.get('password')
-    email_username = data.get('email_username')
-    max_iterations = data.get('max_iterations', 15)
-    
-    if not username or not password:
-        return jsonify({"error": "Username and password required"}), 400
-    
-    # Create session ID
-    session_id = str(uuid.uuid4())
-    
-    # Start listener thread
-    listener = EmailListenerThread(
-        session_id, username, password, email_username, max_iterations
-    )
-    listener.daemon = True
-    listener.start()
-    
-    active_listeners[session_id] = listener
-    listener_status[session_id] = "started"
-    
-    return jsonify({
-        "session_id": session_id,
-        "message": "Listener started"
-    })
+# Optional proxy route: forwards POST requests for the FraudCat API.
+# NOTE: This is provided only as an example. Using it in production needs careful
+# consideration: authentication, cookies, rate limits, CORS, TLS, and security.
+@app.route("/proxy", methods=["POST"])
+def proxy():
+    if not USE_PROXY:
+        return jsonify({"error": "Proxy disabled"}), 403
 
-@app.route('/api/check_status/<session_id>', methods=['GET'])
-def check_status(session_id):
-    """Check listener status and get results"""
-    status = listener_status.get(session_id, "not_found")
-    
-    if status == "completed":
-        result = listener_results.get(session_id, {})
-        return jsonify({
-            "status": status,
-            "result": result
-        })
-    elif status == "timeout":
-        result = listener_results.get(session_id, {})
-        return jsonify({
-            "status": status,
-            "error": result.get("error", "Timeout occurred")
-        })
-    elif status == "error":
-        result = listener_results.get(session_id, {})
-        return jsonify({
-            "status": status,
-            "error": result.get("error", "Unknown error occurred")
-        })
-    else:
-        return jsonify({
-            "status": status
-        })
+    payload = request.get_json() or {}
+    path = payload.get("path")
+    body = payload.get("body", {})
 
-@app.route('/api/test_login', methods=['POST'])
-def test_login():
-    """Test if login credentials work"""
-    data = request.json
-    username = data.get('username')
-    password = data.get('password')
-    
-    if not username or not password:
-        return jsonify({"error": "Username and password required"}), 400
-    
+    if not path:
+        return jsonify({"error": "Missing path"}), 400
+
+    url = FRAUD_BASE.rstrip("/") + path
     try:
-        fraud_session = FraudCatSession(username, password)
-        if fraud_session.is_logged_in:
-            domains_count = len(fraud_session.available_domains)
-            fraud_session.logout()
-            return jsonify({
-                "success": True,
-                "domains_available": domains_count,
-                "message": f"Login successful! {domains_count} domains available."
-            })
-        else:
-            return jsonify({
-                "success": False,
-                "error": "Login failed. Check your credentials."
-            }), 401
+        # Forward request. Cookies from user's browser won't be forwarded.
+        # If you need to forward cookies, you'd have to accept them from client
+        # and attach them here (with appropriate security measures).
+        r = requests.post(url, json=body, timeout=10)
+        return Response(r.content, status=r.status_code, content_type=r.headers.get('Content-Type', 'application/json'))
     except Exception as e:
-        return jsonify({
-            "success": False,
-            "error": str(e)
-        }), 500
+        return jsonify({"error": "Backend proxy failed", "detail": str(e)}), 500
 
-@app.route('/api/get_domains', methods=['POST'])
-def get_domains():
-    """Get available domains for an account"""
-    data = request.json
-    username = data.get('username')
-    password = data.get('password')
-    
-    if not username or not password:
-        return jsonify({"error": "Username and password required"}), 400
-    
-    try:
-        fraud_session = FraudCatSession(username, password)
-        if fraud_session.is_logged_in:
-            return jsonify({
-                "success": True,
-                "domains": fraud_session.available_domains
-            })
-        else:
-            return jsonify({
-                "success": False,
-                "error": "Login failed"
-            }), 401
-    except Exception as e:
-        return jsonify({
-            "success": False,
-            "error": str(e)
-        }), 500
-
-if __name__ == '__main__':
-    app.run(debug=False, host='0.0.0.0', port=5000)
+if __name__ == "__main__":
+    # To run locally:
+    # pip install flask requests
+    # FLASK_APP=app.py flask run --host=0.0.0.0 --port=5000
+    #
+    # Or run directly:
+    app.run(host="0.0.0.0", port=5000, debug=True)
