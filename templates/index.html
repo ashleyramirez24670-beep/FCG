@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>FraudCat Email Listener - Web Interface</title>
+    <title>FraudCat Email Manager - Direct Access</title>
     <style>
         * {
             margin: 0;
@@ -19,7 +19,7 @@
         }
 
         .container {
-            max-width: 1200px;
+            max-width: 1400px;
             margin: 0 auto;
         }
 
@@ -51,6 +51,8 @@
             color: #333;
             margin-bottom: 20px;
             font-size: 1.5rem;
+            border-bottom: 2px solid #667eea;
+            padding-bottom: 10px;
         }
 
         .form-group {
@@ -88,6 +90,8 @@
             font-weight: 600;
             cursor: pointer;
             transition: transform 0.2s, box-shadow 0.2s;
+            margin-right: 10px;
+            margin-bottom: 10px;
         }
 
         button:hover {
@@ -103,6 +107,10 @@
 
         .btn-secondary {
             background: linear-gradient(135deg, #6c757d 0%, #495057 100%);
+        }
+
+        .btn-success {
+            background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
         }
 
         .status {
@@ -140,23 +148,50 @@
             color: #856404;
         }
 
-        .email-content {
+        .email-list {
+            max-height: 600px;
+            overflow-y: auto;
+        }
+
+        .email-item {
             background: #f8f9fa;
-            padding: 15px;
+            border: 1px solid #dee2e6;
             border-radius: 8px;
-            margin-top: 15px;
+            padding: 15px;
+            margin-bottom: 10px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .email-item:hover {
+            background: #e9ecef;
+            transform: translateX(5px);
+        }
+
+        .email-subject {
+            font-weight: bold;
+            color: #333;
+            margin-bottom: 5px;
+        }
+
+        .email-meta {
+            font-size: 12px;
+            color: #666;
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .email-content-full {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 8px;
+            margin-top: 20px;
             max-height: 500px;
             overflow-y: auto;
         }
 
-        .email-header {
-            border-bottom: 2px solid #dee2e6;
-            padding-bottom: 10px;
-            margin-bottom: 15px;
-        }
-
         .email-field {
-            margin-bottom: 10px;
+            margin-bottom: 15px;
         }
 
         .email-field strong {
@@ -167,7 +202,7 @@
 
         .email-body {
             background: white;
-            padding: 15px;
+            padding: 20px;
             border-radius: 6px;
             margin-top: 15px;
             white-space: pre-wrap;
@@ -175,6 +210,62 @@
             font-family: monospace;
             font-size: 13px;
             line-height: 1.6;
+        }
+
+        .domains-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-top: 10px;
+        }
+
+        .domain-badge {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 8px 15px;
+            border-radius: 20px;
+            font-size: 13px;
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+
+        .domain-badge:hover {
+            transform: scale(1.05);
+        }
+
+        .domain-badge.selected {
+            background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+        }
+
+        .row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+
+        .full-width {
+            grid-column: 1 / -1;
+        }
+
+        @media (max-width: 768px) {
+            .row {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 600;
+            margin-left: 10px;
+        }
+
+        .badge-new {
+            background: #28a745;
+            color: white;
         }
 
         .loading {
@@ -194,368 +285,199 @@
             100% { transform: rotate(360deg); }
         }
 
-        .domains-list {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 10px;
-            margin-top: 10px;
+        .connection-status {
+            padding: 10px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            text-align: center;
         }
 
-        .domain-badge {
-            background: #e0e0e0;
-            padding: 5px 10px;
-            border-radius: 4px;
-            font-size: 12px;
-            font-family: monospace;
+        .status-connected {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
         }
 
-        .row {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 20px;
-        }
-
-        @media (max-width: 768px) {
-            .row {
-                grid-template-columns: 1fr;
-            }
-        }
-
-        .progress-bar {
-            width: 100%;
-            height: 4px;
-            background: #e0e0e0;
-            border-radius: 2px;
-            overflow: hidden;
-            margin-top: 10px;
-        }
-
-        .progress-fill {
-            height: 100%;
-            background: linear-gradient(90deg, #667eea, #764ba2);
-            width: 0%;
-            transition: width 0.3s;
-            animation: pulse 1.5s infinite;
-        }
-
-        @keyframes pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.7; }
-        }
-
-        .badge {
-            display: inline-block;
-            padding: 4px 8px;
-            border-radius: 4px;
-            font-size: 12px;
-            font-weight: 600;
-            margin-left: 10px;
-        }
-
-        .badge-success {
-            background: #28a745;
-            color: white;
-        }
-
-        .badge-warning {
-            background: #ffc107;
-            color: #333;
+        .status-disconnected {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
         }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="header">
-            <h1>📧 FraudCat Email Listener</h1>
-            <p>Create temporary emails and listen for incoming messages</p>
+            <h1>📧 FraudCat Email Manager</h1>
+            <p>Direct access to temporary email inboxes</p>
         </div>
+
+        <div id="connectionStatus" class="connection-status"></div>
 
         <div class="row">
             <div>
                 <div class="card">
-                    <h2>🔐 Account Login</h2>
+                    <h2>📨 Access Email Inbox</h2>
                     <div class="form-group">
-                        <label>FraudCat Username</label>
-                        <input type="text" id="username" placeholder="Enter your username">
+                        <label>Email Username</label>
+                        <input type="text" id="emailUsername" placeholder="e.g., myinbox">
                     </div>
                     <div class="form-group">
-                        <label>Password</label>
-                        <input type="password" id="password" placeholder="Enter your password">
+                        <label>Email Domain</label>
+                        <select id="emailDomain">
+                            <option value="">Select a domain...</option>
+                        </select>
                     </div>
-                    <button onclick="testLogin()">Test Login</button>
-                    <button onclick="getDomains()" class="btn-secondary" style="margin-left: 10px;">Get Available Domains</button>
+                    <button onclick="checkInbox()" class="btn-success">📥 Check Inbox</button>
+                    <button onclick="createEmail()">✨ Create New Email</button>
                     
-                    <div id="loginStatus" class="status"></div>
-                    <div id="domainsContainer" style="margin-top: 15px;"></div>
+                    <div id="inboxStatus" class="status"></div>
                 </div>
 
                 <div class="card">
-                    <h2>📨 Create Email Listener</h2>
-                    <div class="form-group">
-                        <label>Email Username (optional)</label>
-                        <input type="text" id="emailUsername" placeholder="Leave empty for random username">
-                        <small style="color: #666;">If left empty, a random username will be generated</small>
-                    </div>
-                    <div class="form-group">
-                        <label>Maximum Wait Time (iterations)</label>
-                        <select id="maxIterations">
-                            <option value="10">10 iterations (200 seconds)</option>
-                            <option value="15" selected>15 iterations (300 seconds)</option>
-                            <option value="20">20 iterations (400 seconds)</option>
-                            <option value="30">30 iterations (600 seconds)</option>
-                        </select>
-                        <small>Each iteration checks for emails every 20 seconds</small>
-                    </div>
-                    <button onclick="startListener()">🚀 Start Email Listener</button>
+                    <h2>🎲 Quick Actions</h2>
+                    <button onclick="createAndListen()">🚀 Create Random Email & Listen</button>
+                    <button onclick="refreshDomains()">🔄 Refresh Domains</button>
+                    
+                    <div id="quickStatus" class="status"></div>
                 </div>
             </div>
 
             <div>
                 <div class="card">
-                    <h2>📡 Listener Status</h2>
-                    <div id="listenerStatus" class="status"></div>
-                    <div id="emailContent" style="display: none;">
-                        <h3>📧 Email Received</h3>
-                        <div class="email-content" id="emailDetails"></div>
+                    <h2>📬 Messages <span id="messageCount"></span></h2>
+                    <div id="messagesList" class="email-list">
+                        <p style="color: #999; text-align: center;">Select an email address to view messages</p>
                     </div>
                 </div>
             </div>
         </div>
 
-        <div class="card">
-            <h2>ℹ️ How it works</h2>
-            <p><strong>Step 1:</strong> Enter your FraudCat account credentials and test the login</p>
-            <p><strong>Step 2:</strong> (Optional) Specify an email username or leave empty for random generation</p>
-            <p><strong>Step 3:</strong> Click "Start Email Listener" - the system will:</p>
-            <ul style="margin-left: 30px; margin-top: 10px;">
-                <li>Login to your FraudCat account</li>
-                <li>Fetch available domains</li>
-                <li>Create a temporary email address</li>
-                <li>Listen for incoming emails (checks every 20 seconds)</li>
-                <li>Display the full email content when received</li>
-            </ul>
-            <p style="margin-top: 15px;"><strong>Note:</strong> The listener will automatically stop after the specified time if no email is received.</p>
+        <div class="card full-width" id="emailDetailCard" style="display: none;">
+            <h2>📄 Email Content</h2>
+            <div id="emailDetail" class="email-content-full"></div>
+        </div>
+
+        <div class="card full-width" id="listenerCard" style="display: none;">
+            <h2>👂 Active Listener</h2>
+            <div id="listenerStatus2" class="status"></div>
+            <div id="listenerResult"></div>
         </div>
     </div>
 
     <script>
         let currentSessionId = null;
         let statusCheckInterval = null;
+        let currentEmail = null;
+        let currentDomain = null;
 
-        async function testLogin() {
-            const username = document.getElementById('username').value;
-            const password = document.getElementById('password').value;
+        // Load available domains on page load
+        window.addEventListener('load', () => {
+            checkConnection();
+            refreshDomains();
+        });
+
+        async function checkConnection() {
+            try {
+                const response = await fetch('/api/status');
+                const data = await response.json();
+                
+                const statusDiv = document.getElementById('connectionStatus');
+                if (data.connected) {
+                    statusDiv.innerHTML = `✅ Connected to FraudCat | ${data.domains_available} domains available`;
+                    statusDiv.className = 'connection-status status-connected';
+                } else {
+                    statusDiv.innerHTML = '❌ Not connected to FraudCat. Check credentials in app.py';
+                    statusDiv.className = 'connection-status status-disconnected';
+                }
+            } catch (error) {
+                console.error('Connection check failed:', error);
+            }
+        }
+
+        async function refreshDomains() {
+            try {
+                const response = await fetch('/api/status');
+                const data = await response.json();
+                
+                if (data.domains && data.domains.length > 0) {
+                    const domainSelect = document.getElementById('emailDomain');
+                    domainSelect.innerHTML = '<option value="">Select a domain...</option>';
+                    
+                    data.domains.forEach(domain => {
+                        const option = document.createElement('option');
+                        option.value = domain;
+                        option.textContent = domain;
+                        domainSelect.appendChild(option);
+                    });
+                    
+                    showStatus('quickStatus', `✅ Loaded ${data.domains.length} domains`, 'success');
+                } else {
+                    showStatus('quickStatus', '⚠️ No domains available', 'warning');
+                }
+            } catch (error) {
+                showStatus('quickStatus', `Error: ${error.message}`, 'error');
+            }
+        }
+
+        async function checkInbox() {
+            const username = document.getElementById('emailUsername').value;
+            const domain = document.getElementById('emailDomain').value;
             
-            if (!username || !password) {
-                showStatus('loginStatus', 'Please enter username and password', 'error');
+            if (!username) {
+                showStatus('inboxStatus', 'Please enter an email username', 'error');
                 return;
             }
             
-            showStatus('loginStatus', 'Testing login credentials...', 'info');
+            if (!domain) {
+                showStatus('inboxStatus', 'Please select a domain', 'error');
+                return;
+            }
+            
+            currentEmail = username;
+            currentDomain = domain;
+            
+            showStatus('inboxStatus', 'Fetching messages...', 'info');
             
             try {
-                const response = await fetch('/api/test_login', {
+                const response = await fetch('/api/check_inbox', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ username, password })
+                    body: JSON.stringify({ username, domain })
                 });
                 
                 const data = await response.json();
                 
                 if (data.success) {
-                    showStatus('loginStatus', `✅ Login successful! ${data.domains_available} domains available.`, 'success');
+                    displayMessages(data.messages);
+                    document.getElementById('messageCount').innerHTML = `(${data.message_count} messages)`;
+                    showStatus('inboxStatus', `✅ Found ${data.message_count} messages`, 'success');
                 } else {
-                    showStatus('loginStatus', `❌ Login failed: ${data.error}`, 'error');
+                    showStatus('inboxStatus', `❌ Error: ${data.error}`, 'error');
                 }
             } catch (error) {
-                showStatus('loginStatus', `Error: ${error.message}`, 'error');
+                showStatus('inboxStatus', `Error: ${error.message}`, 'error');
             }
         }
-        
-        async function getDomains() {
-            const username = document.getElementById('username').value;
-            const password = document.getElementById('password').value;
+
+        async function createEmail() {
+            const username = document.getElementById('emailUsername').value;
+            const domain = document.getElementById('emailDomain').value;
             
-            if (!username || !password) {
-                showStatus('loginStatus', 'Please enter username and password first', 'error');
+            if (!username) {
+                showStatus('inboxStatus', 'Please enter an email username', 'error');
                 return;
             }
             
-            showStatus('loginStatus', 'Fetching domains...', 'info');
-            
-            try {
-                const response = await fetch('/api/get_domains', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ username, password })
-                });
-                
-                const data = await response.json();
-                
-                if (data.success && data.domains) {
-                    const domainsHtml = `
-                        <div class="domains-list">
-                            ${data.domains.map(d => `<span class="domain-badge">${d}</span>`).join('')}
-                        </div>
-                    `;
-                    document.getElementById('domainsContainer').innerHTML = domainsHtml;
-                    showStatus('loginStatus', `✅ Found ${data.domains.length} available domains`, 'success');
-                } else {
-                    showStatus('loginStatus', `❌ Failed to fetch domains: ${data.error}`, 'error');
-                }
-            } catch (error) {
-                showStatus('loginStatus', `Error: ${error.message}`, 'error');
-            }
-        }
-        
-        async function startListener() {
-            const username = document.getElementById('username').value;
-            const password = document.getElementById('password').value;
-            const emailUsername = document.getElementById('emailUsername').value;
-            const maxIterations = parseInt(document.getElementById('maxIterations').value);
-            
-            if (!username || !password) {
-                showStatus('listenerStatus', 'Please enter your FraudCat credentials first', 'error');
+            if (!domain) {
+                showStatus('inboxStatus', 'Please select a domain', 'error');
                 return;
             }
             
-            // Reset display
-            document.getElementById('emailContent').style.display = 'none';
-            showStatus('listenerStatus', 'Starting email listener...', 'info');
+            showStatus('inboxStatus', 'Creating email...', 'info');
             
             try {
-                const response = await fetch('/api/start_listener', {
+                const response = await fetch('/api/create_email', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ 
-                        username, 
-                        password, 
-                        email_username: emailUsername || null,
-                        max_iterations: maxIterations
-                    })
-                });
-                
-                const data = await response.json();
-                
-                if (data.session_id) {
-                    currentSessionId = data.session_id;
-                    showStatus('listenerStatus', 'Listener started! Waiting for emails...', 'info');
-                    
-                    // Start checking status
-                    if (statusCheckInterval) clearInterval(statusCheckInterval);
-                    statusCheckInterval = setInterval(checkListenerStatus, 3000);
-                } else {
-                    showStatus('listenerStatus', `Failed to start listener: ${data.error}`, 'error');
-                }
-            } catch (error) {
-                showStatus('listenerStatus', `Error: ${error.message}`, 'error');
-            }
-        }
-        
-        async function checkListenerStatus() {
-            if (!currentSessionId) return;
-            
-            try {
-                const response = await fetch(`/api/check_status/${currentSessionId}`);
-                const data = await response.json();
-                
-                if (data.status === 'completed') {
-                    clearInterval(statusCheckInterval);
-                    displayEmail(data.result);
-                    showStatus('listenerStatus', '✅ Email received successfully!', 'success');
-                } else if (data.status === 'timeout') {
-                    clearInterval(statusCheckInterval);
-                    showStatus('listenerStatus', `⏰ Timeout: ${data.error || 'No email received within time limit'}`, 'warning');
-                } else if (data.status === 'error') {
-                    clearInterval(statusCheckInterval);
-                    showStatus('listenerStatus', `❌ Error: ${data.error}`, 'error');
-                } else if (data.status === 'initializing') {
-                    showStatus('listenerStatus', '🔐 Initializing and logging in...', 'info');
-                } else if (data.status === 'getting_domains') {
-                    showStatus('listenerStatus', '🌐 Fetching available domains...', 'info');
-                } else if (data.status === 'creating_email') {
-                    showStatus('listenerStatus', '📧 Creating email address...', 'info');
-                } else if (data.status === 'listening') {
-                    showStatus('listenerStatus', '👂 Listening for emails (checking every 20 seconds)...', 'info');
-                } else if (data.status === 'started') {
-                    showStatus('listenerStatus', '🚀 Listener thread started...', 'info');
-                }
-            } catch (error) {
-                console.error('Status check error:', error);
-            }
-        }
-        
-        function displayEmail(result) {
-            if (!result.message) return;
-            
-            const message = result.message;
-            const emailAddress = result.email || 'Unknown';
-            
-            const emailHtml = `
-                <div class="email-header">
-                    <h4>📬 ${emailAddress}</h4>
-                </div>
-                <div class="email-field">
-                    <strong>From:</strong> ${message.from || 'Unknown'}
-                </div>
-                <div class="email-field">
-                    <strong>Subject:</strong> ${message.subject || 'No subject'}
-                </div>
-                <div class="email-field">
-                    <strong>Date:</strong> ${message.date || message.receivedAt || 'Unknown'}
-                </div>
-                <div class="email-field">
-                    <strong>UID:</strong> ${message.uid || 'N/A'}
-                </div>
-                ${message.attachments && message.attachments.length ? `
-                    <div class="email-field">
-                        <strong>Attachments:</strong> ${message.attachments.join(', ')}
-                    </div>
-                ` : ''}
-                <div class="email-body">
-                    <strong>Message Body:</strong><br><br>
-                    ${escapeHtml(message.body || message.content || message.htmlBody || message.textBody || 'No body content')}
-                </div>
-            `;
-            
-            document.getElementById('emailDetails').innerHTML = emailHtml;
-            document.getElementById('emailContent').style.display = 'block';
-        }
-        
-        function escapeHtml(text) {
-            const div = document.createElement('div');
-            div.textContent = text;
-            return div.innerHTML;
-        }
-        
-        function showStatus(elementId, message, type) {
-            const element = document.getElementById(elementId);
-            element.innerHTML = message;
-            element.className = `status active status-${type}`;
-            
-            if (type === 'success' || type === 'error') {
-                setTimeout(() => {
-                    if (element.innerHTML === message) {
-                        element.classList.remove('active');
-                    }
-                }, 5000);
-            }
-        }
-        
-        // Add loading animation for buttons
-        document.querySelectorAll('button').forEach(btn => {
-            btn.addEventListener('click', function(e) {
-                if (this.textContent.includes('Start')) {
-                    const originalText = this.textContent;
-                    this.textContent = 'Processing...';
-                    this.disabled = true;
-                    setTimeout(() => {
-                        this.textContent = originalText;
-                        this.disabled = false;
-                    }, 2000);
-                }
-            });
-        });
-    </script>
-</body>
-</html>
+                    body: JSON.stringify({ username, domain
